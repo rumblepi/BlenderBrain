@@ -52,15 +52,55 @@ float lastOxyValue = 21;
 
 enum MachineState{
   MixSetting,
-  MixingActive,
+  SettingComplete,
+  MixActive,
 };
 
 MachineState currentState = MachineState::MixSetting;
 
+enum ButtonState{
+  Down,
+  Up  
+};
+
+struct DebouncedButton {
+  float delay_ = 0.05;
+
+  DebouncedButton(int pin, long time = 0) :
+    pin_(pin),
+    lastDebounce_(time),
+    currentState_(ButtonState::Up)    
+  {}
+
+  int stateChanged() {
+      if((millis() - lastDebounce_) > delay_){
+        ButtonState pinState = digitalRead(pin_)? ButtonState::Up : ButtonState::Down;
+        lastDebounce_ = millis();
+        if (pinState == ButtonState::Down && currentState_== ButtonState::Up) {
+          currentState_ = pinState;
+          return 1;
+        } else if (pinState == ButtonState::Up && currentState_== ButtonState::Down) {
+          currentState_ = pinState;
+          return -1; 
+        } else {
+          return 0;
+        }
+      }
+      return 0;
+  }   
+
+  int pin_;
+  long lastDebounce_;
+  ButtonState currentState_;
+};
+
+DebouncedButton heEncoderButton(HE_ENCODER_SW);
+DebouncedButton oxyEncoderButton(OXY_ENCODER_SW);
+
 ///////////////////////////////////////////////////////
 // Auxiliary functions
 
-void setHeO2Display(int o2Soll, int heSoll, int o2Is, int heIs) {
+void setHeO2Display(int o2Soll, int heSoll, bool oFix, bool hFix) {
   lc.shutdown(0,false);
   /* Set the brightness to a medium values */
   lc.setIntensity(0,2);
@@ -68,14 +108,14 @@ void setHeO2Display(int o2Soll, int heSoll, int o2Is, int heIs) {
   lc.clearDisplay(0);
   //todo: error checks
   lc.setDigit(0,3,(o2Soll/10) % 10,false);
-  lc.setDigit(0,2,(o2Soll) % 10, false);
+  lc.setDigit(0,2,(o2Soll) % 10, oFix);
 
   lc.setDigit(0,1,(heSoll/10) % 10,false);
-  lc.setDigit(0,0,(heSoll) % 10, false);
+  lc.setDigit(0,0,(heSoll) % 10, hFix);
 
   lc.setChar(0,7,'5',false);
   lc.setChar(0,6,'E',false);
-  
+
   //letter 't'
   lc.setLed(0,5,4,true);  
   lc.setLed(0,5,5,true);  
@@ -105,10 +145,10 @@ void mixHeO2Display(int o2Soll, int heSoll, int o2Is, int heIs) {
   lc.setDigit(0,0,(heIs) % 10,false);
 }
 
-void encoder_read(int clk_pin, int dt_pin, float & setpoint, int &oldClock) {
+void encoder_read(int clk_pin, int dt_pin, float & setpoint, int &oldClock, bool fixed) {
   int clockVal = digitalRead(clk_pin);
   int dataVal = digitalRead(dt_pin);
-  if (clockVal == oldClock) return;  // was a bounce. Don't count this.
+  if (clockVal == oldClock || fixed) return;  // was a bounce. Don't count this.
   if (clockVal ^ dataVal) {
     // clockwise move
     setpoint += 0.5;
@@ -120,7 +160,7 @@ void encoder_read(int clk_pin, int dt_pin, float & setpoint, int &oldClock) {
     setpoint += 100;
   }
   oldClock = clockVal;  // store clock state for debounce check.
-  setHeO2Display(oxySetPoint, heSetPoint, 21, 0); //update display
+  setHeO2Display(oxySetPoint, heSetPoint, oxyFixed, heFixed); //update display
 }
 
 float getAverageSensorVal(int sensor_pin, int num) {
@@ -137,6 +177,7 @@ float getAverageSensorVal(int sensor_pin, int num) {
 void setup() {  
   Serial.begin(9600); 
   pinMode(OXY_SENSOR_PIN, INPUT);
+  pinMode(HE_SENSOR_PIN, INPUT);
 
   oxySensorCalib = 21.0/getAverageSensorVal(OXY_SENSOR_PIN, 30);
 
@@ -148,29 +189,52 @@ void setup() {
   lc.setIntensity(0,2);
   /* and clear the display */
   lc.clearDisplay(0);
-  setHeO2Display(oxySetPoint, heSetPoint, round(oxySensorValue), 0); //update display
+  setHeO2Display(oxySetPoint, heSetPoint, oxyFixed, heFixed); //update display
 }
 
 void loop() {
   switch(currentState) {
-    case MixSetting:
+    case MachineState::MixSetting:
       if((millis() - TimeOfLastDebounce) > DelayOfDebounce){
-        encoder_read(HE_ENCODER_CLK, HE_ENCODER_DT, heSetPoint, oldClockHe);
-        encoder_read(OXY_ENCODER_CLK, OXY_ENCODER_DT, oxySetPoint, oldClockOxy);
+        encoder_read(HE_ENCODER_CLK, HE_ENCODER_DT, heSetPoint, oldClockHe, heFixed);
+        encoder_read(OXY_ENCODER_CLK, OXY_ENCODER_DT, oxySetPoint, oldClockOxy, oxyFixed);
         TimeOfLastDebounce = millis();
       }
+      if (heEncoderButton.stateChanged() > 0) {
+        heFixed = !heFixed;
+        setHeO2Display(oxySetPoint, heSetPoint, oxyFixed, heFixed); //update display
+
+      }
+      if (oxyEncoderButton.stateChanged() > 0) {
+        oxyFixed = !oxyFixed;
+        setHeO2Display(oxySetPoint, heSetPoint, oxyFixed, heFixed); //update display
+      }
+      if(heFixed && oxyFixed) {
+        currentState = MachineState::SettingComplete;
+        mixHeO2Display(oxySetPoint, heSetPoint, round(oxySensorValue), 0);
+      }
       break;
-    case MixingActive:
+    case MachineState::SettingComplete:
       oxySensorValue = getAverageSensorVal(OXY_SENSOR_PIN, 20)*oxySensorCalib;
       if (oxySensorValue - lastOxyValue > 1 || oxySensorValue - lastOxyValue < -1) {
         Serial.println(oxySensorValue);
         mixHeO2Display(oxySetPoint, heSetPoint, round(oxySensorValue), 0); //update display
         lastOxyValue = oxySensorValue;
       }
+      if (heEncoderButton.stateChanged() > 0) {
+        heFixed = !heFixed;
+        currentState = MachineState::MixSetting;
+        setHeO2Display(oxySetPoint, heSetPoint, oxyFixed, heFixed); //update display
+      }
+      if (oxyEncoderButton.stateChanged() > 0) {
+        oxyFixed = !oxyFixed;
+        currentState = MachineState::MixSetting;
+        setHeO2Display(oxySetPoint, heSetPoint, oxyFixed, heFixed); //update display
+      }
+      
       break;
     default:
       Serial.println("Error");
   }
-
 
 }
