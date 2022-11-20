@@ -34,15 +34,18 @@ LedControl lc = LedControl(DISPLAY_DIN_PIN,DISPLAY_CLK_PIN,DISPLAY_CS_PIN,1);
 #define OXY_ENCODER_DT 4
 #define OXY_ENCODER_SW 2
 
+//* Other fixed numbers
+#define VALVE_PWM_PERIOD_MS 1000
+
 long TimeOfLastDebounce= 0;
 float DelayOfDebounce = 0.01;
 
 //* Global variables
-float oxySetPoint = 22;
+float oxySetPoint = 21.5;
 int oldClockOxy = -1; 
 bool oxyFixed = false;
 
-float heSetPoint = 1;
+float heSetPoint = 0.5;
 int oldClockHe = -1;
 bool heFixed = false;
 
@@ -96,6 +99,37 @@ struct DebouncedButton {
 
 DebouncedButton heEncoderButton(HE_ENCODER_SW);
 DebouncedButton oxyEncoderButton(OXY_ENCODER_SW);
+
+struct PidControl {
+  double targetValue_;
+  double Kp_, Ki_, Kd_;
+  
+  unsigned long prevUpdateTime_;
+  double prevError_, intError_;
+
+  PidControl(double targetValue, double Kp, double Ki, double Kd) :
+    targetValue_(targetValue),
+    Kp_(Kp),
+    Ki_(Ki),
+    Kd_(Kd),
+    prevUpdateTime_(0),
+    prevError_(0),
+    intError_(0){}
+    
+  double compute(double inputValue) {
+    long currentTime = millis();
+    double elapsed = (double) (currentTime - prevUpdateTime_);
+    double error = targetValue_ - inputValue;
+    intError_ += error*elapsed;
+    double dError = (error - prevError_)/elapsed;
+    double out = Kp_*error + Ki_*intError_ + Kd_*dError;
+    prevError_ = error;
+    prevUpdateTime_ = currentTime;        
+    return out;
+  }  
+};
+
+PidControl oxyControl(21,1,1,1);
 
 ///////////////////////////////////////////////////////
 // Auxiliary functions
@@ -171,6 +205,15 @@ float getAverageSensorVal(int sensor_pin, int num) {
   return output /(float)num;
 }
 
+void readAndDisplayOxySensor() {
+    oxySensorValue = getAverageSensorVal(OXY_SENSOR_PIN, 20)*oxySensorCalib;
+    if (oxySensorValue - lastOxyValue > 1 || oxySensorValue - lastOxyValue < -1) {
+      Serial.println(oxySensorValue);
+      mixHeO2Display(oxySetPoint, heSetPoint, round(oxySensorValue), 0); //update display
+      lastOxyValue = oxySensorValue;
+    } 
+}
+
 //////////////////////////////////////////////////////////////////
 // Basic microcontroller methods
 
@@ -178,6 +221,9 @@ void setup() {
   Serial.begin(9600); 
   pinMode(OXY_SENSOR_PIN, INPUT);
   pinMode(HE_SENSOR_PIN, INPUT);
+
+  pinMode(OXY_VALVE_PIN, OUTPUT);
+  pinMode(HE_VALVE_PIN, OUTPUT);
 
   oxySensorCalib = 21.0/getAverageSensorVal(OXY_SENSOR_PIN, 30);
 
@@ -207,6 +253,7 @@ void loop() {
       }
       if (oxyEncoderButton.stateChanged() > 0) {
         oxyFixed = !oxyFixed;
+        oxyControl.targetValue_ = oxySetPoint;
         setHeO2Display(oxySetPoint, heSetPoint, oxyFixed, heFixed); //update display
       }
       if(heFixed && oxyFixed) {
@@ -215,12 +262,11 @@ void loop() {
       }
       break;
     case MachineState::SettingComplete:
-      oxySensorValue = getAverageSensorVal(OXY_SENSOR_PIN, 20)*oxySensorCalib;
-      if (oxySensorValue - lastOxyValue > 1 || oxySensorValue - lastOxyValue < -1) {
-        Serial.println(oxySensorValue);
-        mixHeO2Display(oxySetPoint, heSetPoint, round(oxySensorValue), 0); //update display
-        lastOxyValue = oxySensorValue;
-      }
+      readAndDisplayOxySensor();
+      Serial.println(oxyControl.compute(oxySensorValue));
+      Serial.println(oxySensorValue);
+      Serial.println(oxySetPoint);
+      delay(1000);
       if (heEncoderButton.stateChanged() > 0) {
         heFixed = !heFixed;
         currentState = MachineState::MixSetting;
@@ -231,6 +277,9 @@ void loop() {
         currentState = MachineState::MixSetting;
         setHeO2Display(oxySetPoint, heSetPoint, oxyFixed, heFixed); //update display
       }
+      break;      
+    case MachineState::MixActive:
+      readAndDisplayOxySensor();
       
       break;
     default:
