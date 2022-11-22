@@ -100,36 +100,52 @@ struct DebouncedButton {
 DebouncedButton heEncoderButton(HE_ENCODER_SW);
 DebouncedButton oxyEncoderButton(OXY_ENCODER_SW);
 
-struct PidControl {
+struct PIControl {
   double targetValue_;
-  double Kp_, Ki_, Kd_;
+  double Kp_, Ki_;
   
   unsigned long prevUpdateTime_;
   double prevError_, intError_;
+  short saturation_; //the controller operates in the saturation region
 
-  PidControl(double targetValue, double Kp, double Ki, double Kd) :
+  PIControl(double targetValue, double Kp, double Ki) :
     targetValue_(targetValue),
     Kp_(Kp),
     Ki_(Ki),
-    Kd_(Kd),
     prevUpdateTime_(0),
-    prevError_(0),
-    intError_(0){}
-    
+    intError_(0),
+    saturation_(0){}
+  
+  double clipToUnitInterval(double const & x) {
+    if (x < 0) {
+      saturation_ = -1;
+      return 0;
+    }
+    if (x > 1) {
+      saturation_= 1;
+      return 1;
+    }
+    saturation_= 0;
+    return x;
+  }
+
   double compute(double inputValue) {
     long currentTime = millis();
     double elapsed = (double) (currentTime - prevUpdateTime_);
     double error = targetValue_ - inputValue;
-    intError_ += error*elapsed;
-    double dError = (error - prevError_)/elapsed;
-    double out = Kp_*error + Ki_*intError_ + Kd_*dError;
-    prevError_ = error;
+    if((saturation_ > 0 && error > 0) || (saturation_ < 0 && error < 0)) {
+      //skip if saturation and error are in the same direction
+    } else {
+      intError_ += Ki_*error*elapsed;
+    }
+    intError_ = clipToUnitInterval(intError_);
+    double out = clipToUnitInterval(Kp_*error + intError_);
     prevUpdateTime_ = currentTime;        
     return out;
   }  
 };
 
-PidControl oxyControl(21,1,1,1);
+PIControl oxyControl(21,0.01,0.001);
 
 ///////////////////////////////////////////////////////
 // Auxiliary functions
@@ -263,10 +279,6 @@ void loop() {
       break;
     case MachineState::SettingComplete:
       readAndDisplayOxySensor();
-      Serial.println(oxyControl.compute(oxySensorValue));
-      Serial.println(oxySensorValue);
-      Serial.println(oxySetPoint);
-      delay(1000);
       if (heEncoderButton.stateChanged() > 0) {
         heFixed = !heFixed;
         currentState = MachineState::MixSetting;
