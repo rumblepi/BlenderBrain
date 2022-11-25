@@ -4,6 +4,8 @@
  (c) Nov 17, 2022 Michael Sandbichler
 */
 #include "LedControl.h"
+
+#define DEBUGMODE
 ///////////////////////////////////////////////////////////////////
 // Pins etc
 
@@ -27,12 +29,12 @@
 LedControl lc = LedControl(DISPLAY_DIN_PIN,DISPLAY_CLK_PIN,DISPLAY_CS_PIN,1); 
 
 //* Encoders
-#define HE_ENCODER_CLK 6
-#define HE_ENCODER_DT 7
-#define HE_ENCODER_SW 3
-#define OXY_ENCODER_CLK 5
-#define OXY_ENCODER_DT 4
-#define OXY_ENCODER_SW 2
+#define OXY_ENCODER_CLK 6
+#define OXY_ENCODER_DT 7
+#define OXY_ENCODER_SW 3
+#define HE_ENCODER_CLK 5
+#define HE_ENCODER_DT 4
+#define HE_ENCODER_SW 2
 
 //* Other fixed numbers
 #define VALVE_PWM_PERIOD_MS 1000
@@ -57,6 +59,12 @@ enum MachineState{
   MixSetting,
   SettingComplete,
   MixActive,
+};
+
+enum MixMode{
+  Nitrox,
+  Heliox,
+  Trimix
 };
 
 MachineState currentState = MachineState::MixSetting;
@@ -147,6 +155,21 @@ struct PIControl {
 
 PIControl oxyControl(21,0.01,0.001);
 
+//TODO: clean up the mess
+struct EightDigitDisplay {
+  LedControl lc_;
+};
+
+struct ButtonEncoder {
+
+};
+
+struct Setpoint {
+
+  int hePercent;
+  int oxyPercent;
+};
+
 ///////////////////////////////////////////////////////
 // Auxiliary functions
 
@@ -224,12 +247,40 @@ float getAverageSensorVal(int sensor_pin, int num) {
 void readAndDisplayOxySensor() {
     oxySensorValue = getAverageSensorVal(OXY_SENSOR_PIN, 20)*oxySensorCalib;
     if (oxySensorValue - lastOxyValue > 1 || oxySensorValue - lastOxyValue < -1) {
-      Serial.println(oxySensorValue);
       mixHeO2Display(oxySetPoint, heSetPoint, round(oxySensorValue), 0); //update display
       lastOxyValue = oxySensorValue;
     } 
 }
+#ifdef DEBUGMODE
+void debugDisplay() {
+    float sensorVal = getAverageSensorVal(OXY_SENSOR_PIN, 20);
+    //if (oxySensorValue - lastOxyValue > 1 || oxySensorValue - lastOxyValue < -1) {
+    displayNumber(sensorVal); //update display
+    //} 
+}
 
+void displayNumber(float number) {
+  int numberInt = round(number);
+  lc.shutdown(0,false);
+  /* Set the brightness to a medium values */
+  lc.setIntensity(0,2);
+  /* and clear the display */
+  lc.clearDisplay(0);
+  //todo: error checks
+  //lc.setDigit(0,7,(numberInt/10000000)% 10,false);
+  //lc.setDigit(0,6,(numberInt/1000000)% 10, false);
+
+  //lc.setDigit(0,5,(numberInt/100000)% 10,false);
+  //lc.setDigit(0,4,(numberInt/10000)% 10, true);
+
+  lc.setDigit(0,3,(numberInt/1000)% 10,false);
+  lc.setDigit(0,2,(numberInt/100) % 10,false);
+
+  lc.setDigit(0,1,(numberInt/10) % 10,false);
+  lc.setDigit(0,0,(numberInt) % 10,false);
+}
+
+#endif
 //////////////////////////////////////////////////////////////////
 // Basic microcontroller methods
 
@@ -255,6 +306,10 @@ void setup() {
 }
 
 void loop() {
+#ifdef DEBUGMODE
+  debugDisplay();
+  delay(1000);
+#else
   switch(currentState) {
     case MachineState::MixSetting:
       if((millis() - TimeOfLastDebounce) > DelayOfDebounce){
@@ -297,5 +352,5 @@ void loop() {
     default:
       Serial.println("Error");
   }
-
+#endif
 }
