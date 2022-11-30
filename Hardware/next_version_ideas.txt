@@ -1,0 +1,11 @@
+Possible hardware upgrades for the next version
+
+Add hardware debounce circuits (Schmitt triggers and capacitors)
+Fix holes for mounting the display
+Add encoders to pcb
+Fix footprints for button/etc adapters
+Shrink overall footprint
+Combine He/O2 op amp circuits
+
+Power supply?
+SMT?
