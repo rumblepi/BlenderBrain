@@ -5,7 +5,7 @@
 */
 #include "LedControl.h"
 
-#define DEBUGMODE
+//#define DEBUGMODE
 ///////////////////////////////////////////////////////////////////
 // Pins etc
 
@@ -39,9 +39,6 @@ LedControl lc = LedControl(DISPLAY_DIN_PIN,DISPLAY_CLK_PIN,DISPLAY_CS_PIN,1);
 //* Other fixed numbers
 #define VALVE_PWM_PERIOD_MS 1000
 
-long TimeOfLastDebounce= 0;
-float DelayOfDebounce = 0.01;
-
 //* Global variables
 float oxySetPoint = 21.5;
 int oldClockOxy = -1; 
@@ -74,19 +71,34 @@ enum ButtonState{
   Up  
 };
 
+struct Debouncer {
+  Debouncer(float delay):
+    delay_(delay),
+    lastDebounce_(0){}
+
+  bool check() {
+    if(millis() - lastDebounce_ > delay_) {
+      lastDebounce_ = millis();
+      return true;
+    }
+    return false;
+  }
+  
+  float delay_;
+  long lastDebounce_;
+};
+
 struct DebouncedButton {
-  float delay_ = 0.05;
+  Debouncer debounce_ = Debouncer(0.05);
 
   DebouncedButton(int pin, long time = 0) :
     pin_(pin),
-    lastDebounce_(time),
     currentState_(ButtonState::Up)    
   {}
 
   int stateChanged() {
-      if((millis() - lastDebounce_) > delay_){
+      if(debounce_.check()){
         ButtonState pinState = digitalRead(pin_)? ButtonState::Up : ButtonState::Down;
-        lastDebounce_ = millis();
         if (pinState == ButtonState::Down && currentState_== ButtonState::Up) {
           currentState_ = pinState;
           return 1;
@@ -101,12 +113,13 @@ struct DebouncedButton {
   }   
 
   int pin_;
-  long lastDebounce_;
   ButtonState currentState_;
 };
 
 DebouncedButton heEncoderButton(HE_ENCODER_SW);
 DebouncedButton oxyEncoderButton(OXY_ENCODER_SW);
+DebouncedButton startButton(BUTTON1_PIN);
+DebouncedButton endButton(BUTTON2_PIN);
 
 struct PIControl {
   double targetValue_;
@@ -158,99 +171,117 @@ PIControl oxyControl(21,0.01,0.001);
 //TODO: clean up the mess
 struct EightDigitDisplay {
   LedControl lc_;
+  EightDigitDisplay(LedControl lc) :
+    lc_(lc) {
+      lc_.shutdown(0,false);
+      /* Set the brightness to a medium values */
+      lc_.setIntensity(0,2);
+      /* and clear the display */
+      lc_.clearDisplay(0);      
+  }
+
+  void writeNumber(int number) {
+    // Writes the first eight digits of a given number to the display
+    for(int i=0; i<8; ++i) {
+      lc_.setDigit(0,i,(number/((int) pow(10,i))) % 10,false);
+    }
+  }
+  
+  void writePreText(char* txt) {
+    //The length of txt must not be larger than four characters and will be displayed
+    for(int i = 0; i < 4; ++i) {
+      lc_.setChar(0,7-i,txt[i],false);
+      if(txt[i]=='t'){
+        lc_.setLed(0,7-i,4,true);  
+        lc_.setLed(0,7-i,5,true);  
+        lc_.setLed(0,7-i,6,true);  
+        lc_.setLed(0,7-i,7,true);       
+        }
+      if(txt[i]=='S'){
+        lc_.setDigit(0,7-i,5,false);
+      }
+    }
+  }
+
+  void writeTwoDigits(int number, int pos) {
+    //write two digits at position 1,2,3 or 4 of the display |11|22|33|44|
+    lc_.setDigit(0,7-2*(pos-1),(number/10) % 10,false);
+    lc_.setDigit(0,6-2*(pos-1),number % 10,false);
+  }
+
 };
 
 struct ButtonEncoder {
+  ButtonEncoder(int clkPin, int dtPin, int buttonPin):
+    clk_(clkPin),
+    dt_(dtPin),
+    oldClock_(-1),
+    fixed_(false),
+    button_(DebouncedButton(buttonPin)){}
+    
+  void read(float & setpoint) {
+    if (!debounce.check()) return;
+    int clockVal = digitalRead(clk_);
+    int dataVal = digitalRead(dt_);
+    if (clockVal == oldClock_ || fixed_) return;  // was a bounce. Don't count this.
+    if (clockVal ^ dataVal) {
+      // clockwise move
+      setpoint += 0.5;
+    } else {
+      // counterclockwise move
+      setpoint -= 0.5;
+    }
+    oldClock_ = clockVal;  // store clock state for debounce check.
+  }
 
+  int clk_, dt_, oldClock_;
+  bool fixed_;
+  Debouncer debounce = Debouncer(0.01);
+  DebouncedButton button_;
 };
 
-struct Setpoint {
+ButtonEncoder oxyEncoder(OXY_ENCODER_CLK, OXY_ENCODER_DT, OXY_ENCODER_SW);
+ButtonEncoder heEncoder(HE_ENCODER_CLK, HE_ENCODER_DT, HE_ENCODER_SW);
 
+struct Setpoint {
+  
   int hePercent;
   int oxyPercent;
 };
 
-///////////////////////////////////////////////////////
-// Auxiliary functions
+struct Sensor {
+  Sensor(int pin, float calibValue):
+    pin_(pin)
+    {
+      lastValue_ = calibValue;
+      calibration_ = calibValue/measureAverage(30);
+    }
 
-void setHeO2Display(int o2Soll, int heSoll, bool oFix, bool hFix) {
-  lc.shutdown(0,false);
-  /* Set the brightness to a medium values */
-  lc.setIntensity(0,2);
-  /* and clear the display */
-  lc.clearDisplay(0);
-  //todo: error checks
-  lc.setDigit(0,3,(o2Soll/10) % 10,false);
-  lc.setDigit(0,2,(o2Soll) % 10, oFix);
-
-  lc.setDigit(0,1,(heSoll/10) % 10,false);
-  lc.setDigit(0,0,(heSoll) % 10, hFix);
-
-  lc.setChar(0,7,'5',false);
-  lc.setChar(0,6,'E',false);
-
-  //letter 't'
-  lc.setLed(0,5,4,true);  
-  lc.setLed(0,5,5,true);  
-  lc.setLed(0,5,6,true);  
-  lc.setLed(0,5,7,true); 
-  
-  lc.setChar(0,4,' ',false);
-}
-
-void mixHeO2Display(int o2Soll, int heSoll, int o2Is, int heIs) {
-  lc.shutdown(0,false);
-  /* Set the brightness to a medium values */
-  lc.setIntensity(0,2);
-  /* and clear the display */
-  lc.clearDisplay(0);
-  //todo: error checks
-  lc.setDigit(0,7,(o2Soll/10) % 10,false);
-  lc.setDigit(0,6,(o2Soll) % 10, false);
-
-  lc.setDigit(0,5,(heSoll/10) % 10,false);
-  lc.setDigit(0,4,(heSoll) % 10, false);
-
-  lc.setDigit(0,3,(o2Is/10) % 10,false);
-  lc.setDigit(0,2,(o2Is) % 10,false);
-
-  lc.setDigit(0,1,(heIs/10) % 10,false);
-  lc.setDigit(0,0,(heIs) % 10,false);
-}
-
-void encoder_read(int clk_pin, int dt_pin, float & setpoint, int &oldClock, bool fixed) {
-  int clockVal = digitalRead(clk_pin);
-  int dataVal = digitalRead(dt_pin);
-  if (clockVal == oldClock || fixed) return;  // was a bounce. Don't count this.
-  if (clockVal ^ dataVal) {
-    // clockwise move
-    setpoint += 0.5;
-  } else {
-    // counterclockwise move
-    setpoint -= 0.5;
+  void recalibrate(float calibValue) {
+      calibration_ = calibValue/measureAverage(30);
   }
-  if (setpoint < 0) {
-    setpoint += 100;
-  }
-  oldClock = clockVal;  // store clock state for debounce check.
-  setHeO2Display(oxySetPoint, heSetPoint, oxyFixed, heFixed); //update display
-}
 
-float getAverageSensorVal(int sensor_pin, int num) {
-  float output = 0;
-  for(int i = 0; i < num; ++i) {
-    output += analogRead(sensor_pin);
+  float measureAverage(int num) {
+    float output = 0;
+    for(int i = 0; i < num; ++i) {
+      output += analogRead(pin_);
+    }
+    return output /(float)num;
   }
-  return output /(float)num;
-}
 
-void readAndDisplayOxySensor() {
-    oxySensorValue = getAverageSensorVal(OXY_SENSOR_PIN, 20)*oxySensorCalib;
-    if (oxySensorValue - lastOxyValue > 1 || oxySensorValue - lastOxyValue < -1) {
-      mixHeO2Display(oxySetPoint, heSetPoint, round(oxySensorValue), 0); //update display
-      lastOxyValue = oxySensorValue;
-    } 
-}
+  void update() {
+    lastValue_ = measureAverage(20)*calibration_;
+  }
+    
+  void display(EightDigitDisplay display, int pos) {
+    display.writeTwoDigits((int) round(lastValue_), pos);
+  }
+
+  int pin_;
+  float calibration_;
+  float lastValue_;
+};
+
 #ifdef DEBUGMODE
 void debugDisplay() {
     float sensorVal = getAverageSensorVal(OXY_SENSOR_PIN, 20);
@@ -258,31 +289,11 @@ void debugDisplay() {
     displayNumber(sensorVal); //update display
     //} 
 }
-
-void displayNumber(float number) {
-  int numberInt = round(number);
-  lc.shutdown(0,false);
-  /* Set the brightness to a medium values */
-  lc.setIntensity(0,2);
-  /* and clear the display */
-  lc.clearDisplay(0);
-  //todo: error checks
-  //lc.setDigit(0,7,(numberInt/10000000)% 10,false);
-  //lc.setDigit(0,6,(numberInt/1000000)% 10, false);
-
-  //lc.setDigit(0,5,(numberInt/100000)% 10,false);
-  //lc.setDigit(0,4,(numberInt/10000)% 10, true);
-
-  lc.setDigit(0,3,(numberInt/1000)% 10,false);
-  lc.setDigit(0,2,(numberInt/100) % 10,false);
-
-  lc.setDigit(0,1,(numberInt/10) % 10,false);
-  lc.setDigit(0,0,(numberInt) % 10,false);
-}
-
 #endif
 //////////////////////////////////////////////////////////////////
 // Basic microcontroller methods
+
+//TODO rebuild with new objects
 
 void setup() {  
   Serial.begin(9600); 
@@ -312,11 +323,9 @@ void loop() {
 #else
   switch(currentState) {
     case MachineState::MixSetting:
-      if((millis() - TimeOfLastDebounce) > DelayOfDebounce){
         encoder_read(HE_ENCODER_CLK, HE_ENCODER_DT, heSetPoint, oldClockHe, heFixed);
         encoder_read(OXY_ENCODER_CLK, OXY_ENCODER_DT, oxySetPoint, oldClockOxy, oxyFixed);
-        TimeOfLastDebounce = millis();
-      }
+        
       if (heEncoderButton.stateChanged() > 0) {
         heFixed = !heFixed;
         setHeO2Display(oxySetPoint, heSetPoint, oxyFixed, heFixed); //update display
