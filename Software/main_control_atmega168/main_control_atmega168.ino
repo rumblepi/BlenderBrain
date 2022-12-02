@@ -25,8 +25,6 @@
 #define DISPLAY_DIN_PIN 9
 #define DISPLAY_CS_PIN 8
 #define DISPLAY_CLK_PIN 10
-//HCMAX7219 display(displayCs);
-LedControl lc = LedControl(DISPLAY_DIN_PIN,DISPLAY_CLK_PIN,DISPLAY_CS_PIN,1); 
 
 //* Encoders
 #define OXY_ENCODER_CLK 6
@@ -49,8 +47,8 @@ int oldClockHe = -1;
 bool heFixed = false;
 
 float oxySensorCalib = 0;
-float oxySensorValue = 21;
-float lastOxyValue = 21;
+float oxySensorValue = 20.95;
+float lastOxyValue = 20.95;
 
 enum MachineState{
   MixSetting,
@@ -64,12 +62,23 @@ enum MixMode{
   Trimix
 };
 
+enum GasType{
+  Helium,
+  Oxygen
+};
+
 MachineState currentState = MachineState::MixSetting;
 
 enum ButtonState{
   Down,
   Up  
 };
+
+float clip(float number, float min, float max) {
+  if (number < min) return min;
+  if (number > max) return max;
+  return number;  
+}
 
 struct Debouncer {
   Debouncer(float delay):
@@ -168,7 +177,6 @@ struct PIControl {
 
 PIControl oxyControl(21,0.01,0.001);
 
-//TODO: clean up the mess
 struct EightDigitDisplay {
   LedControl lc_;
   EightDigitDisplay(LedControl lc) :
@@ -211,6 +219,47 @@ struct EightDigitDisplay {
 
 };
 
+EightDigitDisplay display(LedControl(DISPLAY_DIN_PIN,DISPLAY_CLK_PIN,DISPLAY_CS_PIN,1));
+
+struct Setpoint {
+  Setpoint(float oxy = 20.95, float he = 0.0) :
+    hePercent_(he),
+    oxyPercent_(oxy),
+    minOxy_(0),
+    maxOxy_(100.0){}  
+
+  void setHePercent(float newHe) {
+    hePercent_ = clip(newHe,0,99);
+    minOxy_ = 20.95*(1-hePercent_/100.);
+  }
+  
+  void setOxyPercent(float newOxy) {
+    oxyPercent_ = clip(newOxy, minOxy_, maxOxy_);
+  }
+  
+  void display(EightDigitDisplay & display, int pos) {
+    //draw at position 0 or 1 [0000|1111]
+    switch(pos){
+      case 0:
+        display.writeTwoDigits(round(oxyPercent_), 1);
+        display.writeTwoDigits(round(hePercent_), 2);
+        break;
+      case 1:
+        display.writeTwoDigits(round(oxyPercent_), 3);
+        display.writeTwoDigits(round(hePercent_), 4);
+        break;
+      default:
+        return;     
+    }
+  }  
+  float hePercent_;
+  float oxyPercent_;
+  float minOxy_, maxOxy_;
+};
+
+Setpoint currentPercent;
+Setpoint wantedPercent;
+
 struct ButtonEncoder {
   ButtonEncoder(int clkPin, int dtPin, int buttonPin):
     clk_(clkPin),
@@ -234,6 +283,25 @@ struct ButtonEncoder {
     oldClock_ = clockVal;  // store clock state for debounce check.
   }
 
+  void updateSetpoint(Setpoint & sp, GasType gas) {
+    float currSp;
+    switch(gas) {
+      case GasType::Helium:
+        currSp = sp.hePercent_;
+        read(currSp);
+        sp.setHePercent(currSp);
+        break;
+      case GasType::Oxygen:
+        currSp = sp.oxyPercent_;
+        read(currSp);
+        sp.setOxyPercent(currSp);
+        break;
+      default:
+        return;
+    }
+    if (!debounce.check()) return;
+  }
+
   int clk_, dt_, oldClock_;
   bool fixed_;
   Debouncer debounce = Debouncer(0.01);
@@ -242,12 +310,6 @@ struct ButtonEncoder {
 
 ButtonEncoder oxyEncoder(OXY_ENCODER_CLK, OXY_ENCODER_DT, OXY_ENCODER_SW);
 ButtonEncoder heEncoder(HE_ENCODER_CLK, HE_ENCODER_DT, HE_ENCODER_SW);
-
-struct Setpoint {
-  
-  int hePercent;
-  int oxyPercent;
-};
 
 struct Sensor {
   Sensor(int pin, float calibValue):
@@ -268,9 +330,9 @@ struct Sensor {
     }
     return output /(float)num;
   }
-
+  
   void update() {
-    lastValue_ = measureAverage(20)*calibration_;
+    lastValue_ = clip(measureAverage(20)*calibration_, 0,99);
   }
     
   void display(EightDigitDisplay display, int pos) {
@@ -282,11 +344,14 @@ struct Sensor {
   float lastValue_;
 };
 
+Sensor oxySensor(OXY_SENSOR_PIN, 21.0);
+Sensor heSensor(HE_SENSOR_PIN, 0.0);
+
 #ifdef DEBUGMODE
 void debugDisplay() {
-    float sensorVal = getAverageSensorVal(OXY_SENSOR_PIN, 20);
+    float sensorVal = oxySensor.measureAverage(20);
     //if (oxySensorValue - lastOxyValue > 1 || oxySensorValue - lastOxyValue < -1) {
-    displayNumber(sensorVal); //update display
+    display.writeNumber(sensorVal); //update display
     //} 
 }
 #endif
@@ -303,17 +368,13 @@ void setup() {
   pinMode(OXY_VALVE_PIN, OUTPUT);
   pinMode(HE_VALVE_PIN, OUTPUT);
 
-  oxySensorCalib = 21.0/getAverageSensorVal(OXY_SENSOR_PIN, 30);
-
   pinMode(HE_ENCODER_SW, INPUT_PULLUP);
   pinMode(OXY_ENCODER_SW, INPUT_PULLUP);
-  
-  lc.shutdown(0,false);
-  /* Set the brightness to a medium values */
-  lc.setIntensity(0,2);
-  /* and clear the display */
-  lc.clearDisplay(0);
-  setHeO2Display(oxySetPoint, heSetPoint, oxyFixed, heFixed); //update display
+
+
+  wantedPercent.minOxy_ = 20.95;
+  wantedPercent.maxOxy_ = 40.0;
+
 }
 
 void loop() {
@@ -323,43 +384,20 @@ void loop() {
 #else
   switch(currentState) {
     case MachineState::MixSetting:
-        encoder_read(HE_ENCODER_CLK, HE_ENCODER_DT, heSetPoint, oldClockHe, heFixed);
-        encoder_read(OXY_ENCODER_CLK, OXY_ENCODER_DT, oxySetPoint, oldClockOxy, oxyFixed);
-        
-      if (heEncoderButton.stateChanged() > 0) {
-        heFixed = !heFixed;
-        setHeO2Display(oxySetPoint, heSetPoint, oxyFixed, heFixed); //update display
-
-      }
-      if (oxyEncoderButton.stateChanged() > 0) {
-        oxyFixed = !oxyFixed;
-        oxyControl.targetValue_ = oxySetPoint;
-        setHeO2Display(oxySetPoint, heSetPoint, oxyFixed, heFixed); //update display
-      }
-      if(heFixed && oxyFixed) {
-        currentState = MachineState::SettingComplete;
-        mixHeO2Display(oxySetPoint, heSetPoint, round(oxySensorValue), 0);
-      }
-      break;
-    case MachineState::SettingComplete:
-      readAndDisplayOxySensor();
-      if (heEncoderButton.stateChanged() > 0) {
-        heFixed = !heFixed;
-        currentState = MachineState::MixSetting;
-        setHeO2Display(oxySetPoint, heSetPoint, oxyFixed, heFixed); //update display
-      }
-      if (oxyEncoderButton.stateChanged() > 0) {
-        oxyFixed = !oxyFixed;
-        currentState = MachineState::MixSetting;
-        setHeO2Display(oxySetPoint, heSetPoint, oxyFixed, heFixed); //update display
-      }
+      heEncoder.updateSetpoint(wantedPercent, GasType::Helium);
+      oxyEncoder.updateSetpoint(wantedPercent, GasType::Oxygen);
+      oxySensor.update();
+      currentPercent.oxyPercent_ = oxySensor.lastValue_;
       break;      
     case MachineState::MixActive:
-      readAndDisplayOxySensor();
-      
+      oxySensor.update();
+      currentPercent.oxyPercent_ = oxySensor.lastValue_;
       break;
     default:
-      Serial.println("Error");
+      break;    
   }
+
+  wantedPercent.display(display, 0);
+  currentPercent.display(display,1);
 #endif
 }
