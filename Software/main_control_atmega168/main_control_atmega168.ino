@@ -222,6 +222,8 @@ struct EightDigitDisplay {
 EightDigitDisplay display(LedControl(DISPLAY_DIN_PIN,DISPLAY_CLK_PIN,DISPLAY_CS_PIN,1));
 
 struct Setpoint {
+  Debouncer displayDebounce_ = Debouncer(0.1);
+
   Setpoint(float oxy = 20.95, float he = 0.0) :
     hePercent_(he),
     oxyPercent_(oxy),
@@ -238,6 +240,7 @@ struct Setpoint {
   }
   
   void display(EightDigitDisplay & display, int pos) {
+    if(!displayDebounce_.check())return;
     //draw at position 0 or 1 [0000|1111]
     switch(pos){
       case 0:
@@ -264,24 +267,58 @@ struct ButtonEncoder {
   ButtonEncoder(int clkPin, int dtPin, int buttonPin):
     clk_(clkPin),
     dt_(dtPin),
-    oldClock_(-1),
+    state_(0),
     fixed_(false),
     button_(DebouncedButton(buttonPin)){}
-    
+
   void read(float & setpoint) {
-    if (!debounce.check()) return;
-    int clockVal = digitalRead(clk_);
-    int dataVal = digitalRead(dt_);
-    if (clockVal == oldClock_ || fixed_) return;  // was a bounce. Don't count this.
-    if (clockVal ^ dataVal) {
-      // clockwise move
-      setpoint += 0.5;
-    } else {
-      // counterclockwise move
-      setpoint -= 0.5;
+    bool clockVal = digitalRead(clk_);
+    bool dataVal = digitalRead(dt_);
+    switch (state_) {
+        case 0:                         // Idle state, encoder not turning
+            if (!clockVal){             // Turn clockwise and CLK goes low first
+                state_ = 1;
+            } else if (!dataVal) {      // Turn anticlockwise and DT goes low first
+                state_ = 4;
+            }
+            break;
+        // Clockwise rotation
+        case 1:                     
+            if (!dataVal) {             // Continue clockwise and DT will go low after CLK
+                state_ = 2;
+            } 
+            break;
+        case 2:
+            if (clockVal) {             // Turn further and CLK will go high first
+                state_ = 3;
+            }
+            break;
+        case 3:
+            if (clockVal && dataVal) {  // Both CLK and DT now high as the encoder completes one step clockwise
+                state_ = 0;
+                ++setpoint;
+            }
+            break;
+        // Anticlockwise rotation
+        case 4:                         // As for clockwise but with CLK and DT reversed
+            if (!clockVal) {
+                state_ = 5;
+            }
+            break;
+        case 5:
+            if (dataVal) {
+                state_ = 6;
+            }
+            break;
+        case 6:
+            if (clockVal && dataVal) {
+                state_ = 0;
+                --setpoint;
+            }
+            break; 
     }
-    oldClock_ = clockVal;  // store clock state for debounce check.
   }
+
 
   void updateSetpoint(Setpoint & sp, GasType gas) {
     float currSp;
@@ -299,12 +336,11 @@ struct ButtonEncoder {
       default:
         return;
     }
-    if (!debounce.check()) return;
   }
 
-  int clk_, dt_, oldClock_;
+  int clk_, dt_;
   bool fixed_;
-  Debouncer debounce = Debouncer(0.01);
+  unsigned int state_;
   DebouncedButton button_;
 };
 
@@ -374,7 +410,9 @@ void setup() {
 
   wantedPercent.minOxy_ = 20.95;
   wantedPercent.maxOxy_ = 40.0;
-
+  delay(1000);
+  oxySensor.recalibrate(20.95);
+  currentPercent.displayDebounce_.delay_ = 100;
 }
 
 void loop() {
