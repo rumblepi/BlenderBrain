@@ -6,6 +6,7 @@ Add encoders to pcb
 Fix footprints for button/etc adapters
 Shrink overall footprint
 Combine He/O2 op amp circuits
+Combine two rotary encoders into one - switch gas by button push
 
 Power supply?
 SMT?
