@@ -221,6 +221,39 @@ struct EightDigitDisplay {
 
 EightDigitDisplay display(LedControl(DISPLAY_DIN_PIN,DISPLAY_CLK_PIN,DISPLAY_CS_PIN,1));
 
+struct Sensor {
+  Sensor(int pin, float calibValue):
+    pin_(pin)
+    {
+      lastValue_ = calibValue;
+      calibration_ = calibValue/measureAverage(30);
+    }
+
+  void recalibrate(float calibValue) {
+      calibration_ = calibValue/measureAverage(30);
+  }
+
+  float measureAverage(int num) {
+    float output = 0;
+    for(int i = 0; i < num; ++i) {
+      output += analogRead(pin_);
+    }
+    return output /(float)num;
+  }
+  
+  void update() {
+    lastValue_ = clip(measureAverage(20)*calibration_, 0,99);
+  }
+    
+  void display(EightDigitDisplay display, int pos) {
+    display.writeTwoDigits((int) round(lastValue_), pos);
+  }
+
+  int pin_;
+  float calibration_;
+  float lastValue_;
+};
+
 struct Setpoint {
   Debouncer displayDebounce_ = Debouncer(0.1);
 
@@ -237,6 +270,11 @@ struct Setpoint {
   
   void setOxyPercent(float newOxy) {
     oxyPercent_ = clip(newOxy, minOxy_, maxOxy_);
+  }
+
+  void computeFromSensors(Sensor oxySensor, Sensor heSensor) {
+    oxyPercent_ = oxySensor.lastValue_;
+    hePercent_ = 100*(1-heSensor.lastValue_/21)*(1-(oxySensor.lastValue_-heSensor.lastValue_)/(100-heSensor.lastValue_));
   }
   
   void display(EightDigitDisplay & display, int pos) {
@@ -347,45 +385,12 @@ struct ButtonEncoder {
 ButtonEncoder oxyEncoder(OXY_ENCODER_CLK, OXY_ENCODER_DT, OXY_ENCODER_SW);
 ButtonEncoder heEncoder(HE_ENCODER_CLK, HE_ENCODER_DT, HE_ENCODER_SW);
 
-struct Sensor {
-  Sensor(int pin, float calibValue):
-    pin_(pin)
-    {
-      lastValue_ = calibValue;
-      calibration_ = calibValue/measureAverage(30);
-    }
-
-  void recalibrate(float calibValue) {
-      calibration_ = calibValue/measureAverage(30);
-  }
-
-  float measureAverage(int num) {
-    float output = 0;
-    for(int i = 0; i < num; ++i) {
-      output += analogRead(pin_);
-    }
-    return output /(float)num;
-  }
-  
-  void update() {
-    lastValue_ = clip(measureAverage(20)*calibration_, 0,99);
-  }
-    
-  void display(EightDigitDisplay display, int pos) {
-    display.writeTwoDigits((int) round(lastValue_), pos);
-  }
-
-  int pin_;
-  float calibration_;
-  float lastValue_;
-};
-
-Sensor oxySensor(OXY_SENSOR_PIN, 21.0);
-Sensor heSensor(HE_SENSOR_PIN, 0.0);
+Sensor oxySensor(OXY_SENSOR_PIN, 20.95);
+Sensor heSensor(HE_SENSOR_PIN, 20.95);
 
 #ifdef DEBUGMODE
 void debugDisplay() {
-    float sensorVal = oxySensor.measureAverage(20);
+    float sensorVal = heSensor.measureAverage(20);
     //if (oxySensorValue - lastOxyValue > 1 || oxySensorValue - lastOxyValue < -1) {
     display.writeNumber(sensorVal); //update display
     //} 
@@ -412,6 +417,7 @@ void setup() {
   wantedPercent.maxOxy_ = 40.0;
   delay(1000);
   oxySensor.recalibrate(20.95);
+  heSensor.recalibrate(20.95);
   currentPercent.displayDebounce_.delay_ = 100;
 }
 
@@ -425,11 +431,13 @@ void loop() {
       heEncoder.updateSetpoint(wantedPercent, GasType::Helium);
       oxyEncoder.updateSetpoint(wantedPercent, GasType::Oxygen);
       oxySensor.update();
-      currentPercent.oxyPercent_ = oxySensor.lastValue_;
+      heSensor.update();
+      currentPercent.computeFromSensors(oxySensor, heSensor);
       break;      
     case MachineState::MixActive:
       oxySensor.update();
-      currentPercent.oxyPercent_ = oxySensor.lastValue_;
+      heSensor.update();
+      currentPercent.computeFromSensors(oxySensor, heSensor);
       break;
     default:
       break;    
