@@ -35,7 +35,7 @@
 #define HE_ENCODER_SW 2
 
 //* Other fixed numbers
-#define VALVE_PWM_PERIOD_MS 1000
+float VALVE_PWM_PERIOD_MS = 1000;
 
 //* Global variables
 float oxySetPoint = 21.5;
@@ -175,7 +175,91 @@ struct PIControl {
   }  
 };
 
-PIControl oxyControl(21,0.01,0.001);
+PIControl oxyControl(20.95,0.01,0.001);
+PIControl heControl(0.0,0.01,0.001);
+
+struct MagneticValve {
+  int pin_;
+  float s_;//fraction of the pwm period to switch the valve on
+  bool on_;
+  MagneticValve(int pin):
+    pin_(pin),
+    s_(1),
+    on_(false){}    
+
+  Debouncer pwmPeriod_ = Debouncer(VALVE_PWM_PERIOD_MS);
+  Debouncer onPeriod_ = Debouncer(s_*VALVE_PWM_PERIOD_MS);
+
+  void switchOn() {
+    digitalWrite(pin_, true);
+    on_ = true;
+  }
+
+  void switchOff() {
+    digitalWrite(pin_, false);
+    on_ = false;
+  }
+
+  void setS(float newS) {
+    if(newS >= 1 or newS <= 0){
+      return;
+    } 
+    s_ = newS;
+    onPeriod_.delay_=s_*VALVE_PWM_PERIOD_MS;  
+  }
+  
+  void update() {
+    if(!pwmPeriod_.check() &&  onPeriod_.check()) {
+      if(!on_){
+        return;
+      } else {
+        switchOff();
+        return;
+      }
+    }
+    if(!on_){
+      switchOn();
+    }
+    return;
+  }
+};
+
+struct StatusLed {
+  enum LedState {
+    On,
+    Off,
+    Blinking
+  };
+  int pin_;
+  LedState status_;
+  Debouncer blinker_ = Debouncer(1000);
+  Debouncer secondBlink_ = Debouncer(500);
+
+  StatusLed(int pin):
+    pin_(pin),
+    status_(LedState::Off) {}
+  
+  void update(){
+    switch(status_) {
+      case LedState::On:
+        digitalWrite(pin_, true);
+        break;
+      case LedState::Off:
+        digitalWrite(pin_, false);
+        break;
+      case LedState::Blinking:
+        if (!blinker_.check() && !secondBlink_.check()){
+            digitalWrite(pin_,true);
+          } else {
+            digitalWrite(pin_,false);
+          }
+        break;
+    }
+  }
+};
+
+StatusLed redLed(RED_LIGHT_PIN);
+StatusLed greenLed(GREEN_LIGHT_PIN);
 
 struct EightDigitDisplay {
   LedControl lc_;
@@ -275,6 +359,10 @@ struct Setpoint {
   void computeFromSensors(Sensor oxySensor, Sensor heSensor) {
     oxyPercent_ = oxySensor.lastValue_;
     hePercent_ = 100*(1-heSensor.lastValue_/21)*(1-(oxySensor.lastValue_-heSensor.lastValue_)/(100-heSensor.lastValue_));
+  }
+
+  float computeHeSensorValue() {
+    return 100 - 79.05*(100-oxyPercent_)/(100-oxyPercent_-0.2095*hePercent_);
   }
   
   void display(EightDigitDisplay & display, int pos) {
