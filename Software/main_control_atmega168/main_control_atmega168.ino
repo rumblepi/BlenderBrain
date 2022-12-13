@@ -51,12 +51,19 @@ float oxySensorValue = 20.95;
 float lastOxyValue = 20.95;
 
 enum MachineState{
+  //! The MachineState guides through the main loop and switches on the respective functions
   MixSetting,
   SettingComplete,
   MixActive,
 };
 
+enum ErrorCode {
+  //! Exit codes for different errors
+  ImpossibleMix  
+};
+
 enum MixMode{
+  //! For Nitrox and Heliox only one valve is on, for Trimix both valves inject gas
   Nitrox,
   Heliox,
   Trimix
@@ -67,6 +74,7 @@ enum GasType{
   Oxygen
 };
 
+// The starting state is the 'MixSetting'
 MachineState currentState = MachineState::MixSetting;
 
 enum ButtonState{
@@ -74,17 +82,23 @@ enum ButtonState{
   Up  
 };
 
+//! Clip a given floating point number to a minimum and maximum value
 float clip(float number, float min, float max) {
   if (number < min) return min;
   if (number > max) return max;
   return number;  
 }
 
+/*! The Debouncer object can be used to wait a fixed time after an event
+ *  while still continuing with all tasks (i.e. without having to use a
+ *  delay() method)
+ */
 struct Debouncer {
   Debouncer(float delay):
     delay_(delay),
     lastDebounce_(0){}
 
+  //! returns true if the delay has elapsed since the last call
   bool check() {
     if(millis() - lastDebounce_ > delay_) {
       lastDebounce_ = millis();
@@ -97,6 +111,9 @@ struct Debouncer {
   long lastDebounce_;
 };
 
+/*! The DebouncedButton makes use of the Debouncer class to 
+ * stabilize bouncing button pushes
+ */
 struct DebouncedButton {
   Debouncer debounce_ = Debouncer(0.05);
 
@@ -105,6 +122,8 @@ struct DebouncedButton {
     currentState_(ButtonState::Up)    
   {}
 
+  //! Returns +1 if the button changed from 'Down' to 'Up', -1 if the button changed from
+  //! 'Up' to 'Down' and 0 if the state did not change.
   int stateChanged() {
       if(debounce_.check()){
         ButtonState pinState = digitalRead(pin_)? ButtonState::Up : ButtonState::Down;
@@ -130,6 +149,8 @@ DebouncedButton oxyEncoderButton(OXY_ENCODER_SW);
 DebouncedButton startButton(BUTTON1_PIN);
 DebouncedButton endButton(BUTTON2_PIN);
 
+//! Implements proportional-integral control to adjust a quantity to a certain target value
+//! This controller clips the outputs to the interval [0,1]
 struct PIControl {
   double targetValue_;
   double Kp_, Ki_;
