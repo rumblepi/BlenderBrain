@@ -153,9 +153,9 @@ struct DebouncedButton {
 
   bool pressed() {
     if (stateChanged() != 0 && currentState_ == ButtonState::Down) {
-      return True;
+      return true;
     }
-    return False;
+    return false;
   }
 
   int pin_;
@@ -502,33 +502,33 @@ struct ButtonEncoder {
 
 // Structure for the user interface
 struct SingleOption {
-  SingleOption(char* name, int val, bool valActive = true):
+  SingleOption(char* name, int val):
     dispName_(name),
-    value_(val),
-    valActive_(valActive)
+    value_(val)
     {}
 
   void show(EightDigitDisplay & display) {
     display.clear();
     display.writeText(dispName_, 4);
-    if(valActive_){
-      display.writeTwoDigits(value_/100, 3);
-      display.writeTwoDigits(value_,4);
-    }
+    display.writeTwoDigits(value()/100, 3);
+    display.writeTwoDigits(value(),4);
+  }
+
+  void value(ClippedFloat newClippedVal) {
+    value_ = newClippedVal;
   }
 
   void value(int newVal) {
-    value_ = newVal;
-    valActive_ = true;
+    value_.set(newVal);
   }
 
   int value() const {
-    return value_;    
+    int intVal = static_cast<int>(value_.get());
+    return intVal;    
   }
   
   char* dispName_;
-  int value_;  
-  bool valActive_;
+  ClippedFloat value_;  
 };
 
 struct MainMenu {
@@ -565,12 +565,51 @@ struct MainMenu {
   int numEntries = 2;
 };
 
+
+
+struct MixMenu {
+
+  int activeVal_ = 0;
+
+  SingleOption pPrev = SingleOption("P  0", 100);
+  SingleOption pPost = SingleOption("P  1", 225);
+  SingleOption hePrev = SingleOption("HE 0", 0);
+  SingleOption o2Prev = SingleOption("O2 0", 21);
+  SingleOption hePost = SingleOption("HE 1", 35);
+  SingleOption o2Post = SingleOption("O2 1", 21);
+
+  SingleOption getActive() {
+    switch(activeVal_) {  
+      case 0:
+        return pPrev;
+      case 1:
+        return o2Prev;
+      case 2:
+        return hePrev;
+      case 3:
+        return pPost;
+      case 4:
+        return o2Post;
+      case 5:
+        return hePost;
+      default:
+        return SingleOption("Go", 0);
+    }
+  }  
+
+  void
+  display(EightDigitDisplay & disp) {
+    getActive().show(disp);
+  }
+  
+};
+
 struct MixSetup {
   int pressureBefore;
   int pressureAfter;
   Setpoint mixBefore;
   Setpoint mixAfter;  
-}
+};
 
 ///////////////////////////////////////////////////////////////////
 // globals
@@ -587,26 +626,26 @@ float oxySensorCalib = 0;
 float oxySensorValue = 20.95;
 float lastOxyValue = 20.95;
 
-ButtonEncoder encoder(ENCODER_CLK, ENCODER_DT, ENCODER_SW);
+ButtonEncoder encoder = ButtonEncoder(ENCODER_CLK, ENCODER_DT, ENCODER_SW);
 
-EightDigitDisplay display(LedControl(DISPLAY_DIN_PIN,DISPLAY_CLK_PIN,DISPLAY_CS_PIN,1));
+EightDigitDisplay display = EightDigitDisplay(LedControl(DISPLAY_DIN_PIN,DISPLAY_CLK_PIN,DISPLAY_CS_PIN,1));
 
-StatusLed redLed(RED_LIGHT_PIN);
-StatusLed greenLed(GREEN_LIGHT_PIN);
+StatusLed redLed = StatusLed(RED_LIGHT_PIN);
+StatusLed greenLed = StatusLed(GREEN_LIGHT_PIN);
 
-Sensor oxySensor(OXY_SENSOR_PIN, 20.95);
-Sensor heSensor(HE_SENSOR_PIN, 20.95);
+Sensor oxySensor = Sensor(OXY_SENSOR_PIN, 20.95);
+Sensor heSensor = Sensor(HE_SENSOR_PIN, 20.95);
 
-PIControl oxyControl(20.95,0.01,0.001);
-PIControl heControl(0.0,0.01,0.001);
+PIControl oxyControl = PIControl(20.95,0.01,0.001);
+PIControl heControl = PIControl(0.0,0.01,0.001);
 
-MagneticValve oxyValve(OXY_VALVE_PIN);
-MagneticValve heValve(HE_VALVE_PIN);
+MagneticValve oxyValve = MagneticValve(OXY_VALVE_PIN);
+MagneticValve heValve = MagneticValve(HE_VALVE_PIN);
 
 Setpoint measuredMix;
 
 MainMenu mainMenu;
-bool inMain = True;
+bool inMain = true;
 
 //////////////////////////////////////////////////////////////////
 // Basic microcontroller methods
@@ -623,13 +662,12 @@ void setup() {
 
   pinMode(ENCODER_SW, INPUT_PULLUP);
 
-
-  wantedSP.oxyPercent_.minimum(20.95);
-  wantedSP.oxyPercent_.maximum(40.0);
+  //wantedSP.oxyPercent_.minimum(20.95);
+  //wantedSP.oxyPercent_.maximum(40.0);
   delay(1000);
   oxySensor.recalibrate(20.95);
   heSensor.recalibrate(20.95);
-  currentSP.displayDebounce_.delay_ = 100;
+  //currentSP.displayDebounce_.delay_ = 100;
 }
 
 void loop() {
@@ -640,6 +678,9 @@ void loop() {
   if (inMain) {
     mainMenu.update(encoder);
     mainMenu.display(display);
+    if(encoder.button_.pressed()) {
+      inMain = false;
+    }
   } else {
     switch(mainMenu.activeVal_) {
       case 0://start
