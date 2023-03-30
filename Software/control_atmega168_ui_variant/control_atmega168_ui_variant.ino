@@ -23,6 +23,8 @@
 #define DISPLAY_CS_PIN 8
 #define DISPLAY_CLK_PIN 10
 
+#define RESET_BUTTON_PIN 0
+
 //* Encoders
 #define ENCODER_CLK 6
 #define ENCODER_DT 7
@@ -221,12 +223,12 @@ struct MagneticValve {
   Debouncer pwmPeriod_ = Debouncer(VALVE_PWM_PERIOD_MS);
   Debouncer onPeriod_ = Debouncer(s_*VALVE_PWM_PERIOD_MS);
 
-  void switchOn() {
+  void open() {
     digitalWrite(pin_, true);
     on_ = true;
   }
 
-  void switchOff() {
+  void close() {
     digitalWrite(pin_, false);
     on_ = false;
   }
@@ -244,12 +246,12 @@ struct MagneticValve {
       if(!on_){
         return;
       } else {
-        switchOff();
+        close();
         return;
       }
     }
     if(!on_){
-      switchOn();
+      open();
     }
     return;
   }
@@ -502,6 +504,10 @@ struct ButtonEncoder {
 
 // Structure for the user interface
 struct SingleOption {
+  SingleOption() {
+    dispName_ = "";
+    value_ = 0;
+  }
   SingleOption(char* name, int val):
     dispName_(name),
     value_(val)
@@ -570,15 +576,37 @@ struct MainMenu {
 struct MixMenu {
 
   int activeVal_ = 0;
+  const int nOptions_ = 6;
 
-  SingleOption pPrev = SingleOption("P  0", 100);
-  SingleOption pPost = SingleOption("P  1", 225);
-  SingleOption hePrev = SingleOption("HE 0", 0);
-  SingleOption o2Prev = SingleOption("O2 0", 21);
-  SingleOption hePost = SingleOption("HE 1", 35);
-  SingleOption o2Post = SingleOption("O2 1", 21);
+  SingleOption pPrev;
 
-  SingleOption getActive() {
+  SingleOption pPost;
+
+  SingleOption hePrev;
+  SingleOption o2Prev;
+  SingleOption hePost;
+  SingleOption o2Post;
+
+  MixMenu() {
+    pPrev = SingleOption("P  0", 100);
+    pPost = SingleOption("P  1", 225);
+    hePrev = SingleOption("HE 0", 0);
+    o2Prev = SingleOption("02 0", 21);
+    hePost = SingleOption("HE 1", 35);
+    o2Post = SingleOption("02 1", 21);
+    pPrev.value_.maximum(225);
+    pPrev.value_.set(100);
+    pPost.value_.maximum(225);
+    pPost.value_.set(220);
+    o2Post.value_.maximum(40);
+  }
+
+  void
+  reset() {
+    activeVal_ = 0;
+  }  
+
+  SingleOption & getActive() {
     switch(activeVal_) {  
       case 0:
         return pPrev;
@@ -593,7 +621,17 @@ struct MixMenu {
       case 5:
         return hePost;
       default:
-        return SingleOption("Go", 0);
+        return hePost;
+    }
+  }
+
+  bool
+  next() {
+    activeVal_++;
+    if(activeVal_ < nOptions_) {
+      return false;
+    } else {
+      return true;
     }
   }  
 
@@ -605,10 +643,26 @@ struct MixMenu {
 };
 
 struct MixSetup {
+  bool
+  updateFromMixMenu(MixMenu settings) {
+    pressureBefore = settings.pPrev.value();
+    pressureAfter = settings.pPost.value();
+    mixBefore = Setpoint(settings.o2Prev.value(), settings.hePrev.value());
+    mixAfter = Setpoint(settings.o2Post.value(), settings.hePost.value());
+    return computeRequiredMix();
+  }
+
+  bool 
+  computeRequiredMix() {
+    return false;
+  }  
+
   int pressureBefore;
   int pressureAfter;
   Setpoint mixBefore;
-  Setpoint mixAfter;  
+  Setpoint mixAfter; 
+  Setpoint mixRequired;  
+ 
 };
 
 ///////////////////////////////////////////////////////////////////
@@ -627,6 +681,7 @@ float oxySensorValue = 20.95;
 float lastOxyValue = 20.95;
 
 ButtonEncoder encoder = ButtonEncoder(ENCODER_CLK, ENCODER_DT, ENCODER_SW);
+DebouncedButton reset = DebouncedButton(RESET_BUTTON_PIN);
 
 EightDigitDisplay display = EightDigitDisplay(LedControl(DISPLAY_DIN_PIN,DISPLAY_CLK_PIN,DISPLAY_CS_PIN,1));
 
@@ -645,7 +700,11 @@ MagneticValve heValve = MagneticValve(HE_VALVE_PIN);
 Setpoint measuredMix;
 
 MainMenu mainMenu;
+MixMenu mixMenu;
 bool inMain = true;
+bool mixing = false;
+
+MixSetup mixSetup;
 
 //////////////////////////////////////////////////////////////////
 // Basic microcontroller methods
@@ -661,6 +720,7 @@ void setup() {
   pinMode(HE_VALVE_PIN, OUTPUT);
 
   pinMode(ENCODER_SW, INPUT_PULLUP);
+  pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
 
   //wantedSP.oxyPercent_.minimum(20.95);
   //wantedSP.oxyPercent_.maximum(40.0);
@@ -675,7 +735,20 @@ void loop() {
   debugDisplay();
   delay(1000);
 #else
-  if (inMain) {
+  if (reset.pressed()) {
+    mixing = false;
+    inMain = true;
+    mixMenu.reset();
+    oxyValve.close();
+    heValve.close();
+  }
+  if(mixing) {
+    //TODO add display and PI control of valves
+    mixSetup.mixRequired.display(display, 0);
+    measuredMix.computeFromSensors(oxySensor, heSensor);
+    measuredMix.display(display,1);
+  }
+  else if (inMain) {
     mainMenu.update(encoder);
     mainMenu.display(display);
     if(encoder.button_.pressed()) {
@@ -684,8 +757,18 @@ void loop() {
   } else {
     switch(mainMenu.activeVal_) {
       case 0://start
-        break;
+        mixMenu.display(display);
+        mixMenu.getActive().value(encoder.read(mixMenu.getActive().value()));
+
+        if (encoder.button_.pressed()) {
+          mixing = mixMenu.next();
+        }
+        if (mixing) {
+          mixSetup.updateFromMixMenu(mixMenu);
+        }       
+      break;
       case 1://set
+        //TODO: make the PI controller parameters changeable
         break;
     }
   }
