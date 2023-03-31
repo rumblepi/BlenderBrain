@@ -72,19 +72,6 @@ struct MixSetup {
 };
 
 ///////////////////////////////////////////////////////////////////
-// globals
-//* Global variables
-float oxySetPoint = 21.5;
-int oldClockOxy = -1; 
-bool oxyFixed = false;
-
-float heSetPoint = 0.5;
-int oldClockHe = -1;
-bool heFixed = false;
-
-float oxySensorCalib = 0;
-float oxySensorValue = 20.95;
-float lastOxyValue = 20.95;
 
 ButtonEncoder encoder = ButtonEncoder(ENCODER_CLK, ENCODER_DT, ENCODER_SW);
 DebouncedButton reset = DebouncedButton(RESET_BUTTON_PIN);
@@ -128,12 +115,10 @@ void setup() {
   pinMode(ENCODER_SW, INPUT_PULLUP);
   pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
 
-  //wantedSP.oxyPercent_.minimum(20.95);
-  //wantedSP.oxyPercent_.maximum(40.0);
   delay(1000);
   oxySensor.recalibrate(20.95);
   heSensor.recalibrate(20.95);
-  //currentSP.displayDebounce_.delay_ = 100;
+  measuredMix.displayDebounce_ = Debouncer(50);
 }
 
 void loop() {
@@ -147,6 +132,15 @@ void loop() {
     mixMenu.reset();
     oxyValve.close();
     heValve.close();
+    display.clear();
+    for (int i = 0; i < 5; ++i) {
+      display.writeText("SEnS0r  ", 8);
+      delay(1000);
+      display.writeText("CAL18   ", 8);
+      delay(1000);
+    }
+    oxySensor.recalibrate(20.95);
+    heSensor.recalibrate(20.95);
   }
   if(mixing) {
     //TODO add display and PI control of valves

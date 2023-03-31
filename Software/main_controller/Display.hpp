@@ -3,8 +3,9 @@
 
 struct EightDigitDisplay {
   LedControl lc_;
+  
   EightDigitDisplay(LedControl lc) :
-    lc_(lc) {
+    lc_(lc){
       lc_.shutdown(0,false);
       /* Set the brightness to a medium values */
       lc_.setIntensity(0,2);

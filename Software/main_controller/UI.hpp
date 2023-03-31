@@ -50,6 +50,7 @@ struct SingleOption {
     {}
 
   void show(EightDigitDisplay & display) {
+    if(!displayDebounce.check()) return;
     display.clear();
     display.writeText(dispName_, 4);
     display.writeTwoDigits(value()/100, 3);
@@ -71,6 +72,7 @@ struct SingleOption {
   
   char* dispName_;
   ClippedFloat value_;  
+  Debouncer displayDebounce = Debouncer(50);
 };
 
 struct MixMenu {
@@ -79,13 +81,21 @@ struct MixMenu {
   const int nOptions_ = 6;
 
   SingleOption pPrev;
-
   SingleOption pPost;
-
   SingleOption hePrev;
   SingleOption o2Prev;
   SingleOption hePost;
   SingleOption o2Post;
+
+  //void
+  //setPossibleHeContent {
+    //TODO
+  //}
+
+  //void
+  //setPossibleO2Content {
+    //TODO    
+  //}
 
   MixMenu() {
     pPrev = SingleOption("P  0", 100);
@@ -111,17 +121,17 @@ struct MixMenu {
       case 0:
         return pPrev;
       case 1:
-        return o2Prev;
-      case 2:
         return hePrev;
+      case 2:
+        return o2Prev;
       case 3:
         return pPost;
       case 4:
-        return o2Post;
+        return hePost;
       case 5:
-        return hePost;
+        return o2Post;
       default:
-        return hePost;
+        return o2Post;
     }
   }
 
@@ -157,6 +167,7 @@ struct MainMenu {
 
   void
   display(EightDigitDisplay & disp) {
+    if(!displayDebouncer.check()) return;
     switch(activeVal_) {
       case 0:
         disp.clear();
@@ -172,7 +183,7 @@ struct MainMenu {
   get() {
     return activeVal_;
   }  
-
+  Debouncer displayDebouncer = Debouncer(100);
   int activeVal_ = 0;
   int numEntries = 2;
 };

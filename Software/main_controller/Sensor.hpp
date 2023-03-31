@@ -21,9 +21,9 @@ struct Sensor {
     }
     return output /(float)num;
   }
-  
+
   void update() {
-    lastValue_.set(measureAverage(20)*calibration_);
+    lastValue_.set(measureAverage(150)*calibration_);
   }
     
   void display(EightDigitDisplay display, int pos) {

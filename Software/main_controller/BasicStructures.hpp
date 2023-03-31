@@ -106,7 +106,7 @@ struct DebouncedButton {
   }   
 
   bool pressed() {
-    if (stateChanged() != 0 && currentState_ == ButtonState::Down) {
+    if (stateChanged() != 0 && currentState_ == ButtonState::Up) {
       return true;
     }
     return false;
