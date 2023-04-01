@@ -59,9 +59,15 @@ struct MixSetup {
 
   bool 
   computeRequiredMix() {
-    //IMPLEMENT THIS
-    return false;
-  }  
+    float prevFraction = static_cast<float>(pressureBefore) / pressureAfter;
+    float requiredHe = (mixAfter.hePercent_.get() - prevFraction*mixBefore.hePercent_.get())/(1-prevFraction);
+    float requiredO2 = (mixAfter.oxyPercent_.get() - prevFraction*mixBefore.oxyPercent_.get())/(1-prevFraction);
+    if (requiredO2 > 40 || requiredO2 < 0 || requiredHe < 0 || requiredHe > 100) {
+      return false;
+    }
+    mixRequired = Setpoint(requiredO2, requiredHe);
+    return true;
+  }
 
   int pressureBefore;
   int pressureAfter;
@@ -96,6 +102,7 @@ MainMenu mainMenu;
 MixMenu mixMenu;
 bool inMain = true;
 bool mixing = false;
+bool goodMix = false;
 
 MixSetup mixSetup;
 
@@ -144,6 +151,14 @@ void loop() {
   }
   if(mixing) {
     //TODO add display and PI control of valves
+    if(!goodMix) {
+      display.writeText("Set Err ", 8);
+      mixing = false;
+      inMain = true;
+      mixMenu.reset();
+      oxyValve.close();
+      heValve.close();
+    }
     mixSetup.mixRequired.display(display, 0);
     oxySensor.update();
     heSensor.update();
@@ -166,7 +181,7 @@ void loop() {
           mixing = mixMenu.next();
         }
         if (mixing) {
-          mixSetup.updateFromMixMenu(mixMenu);
+          goodMix = mixSetup.updateFromMixMenu(mixMenu);
         }       
       break;
       case 1://set

@@ -87,15 +87,20 @@ struct MixMenu {
   SingleOption hePost;
   SingleOption o2Post;
 
-  //void
-  //setPossibleHeContent {
-    //TODO
-  //}
+  void
+  setPossibleHeContent() {
+    float prevFraction = pPrev.value_.get() / pPost.value_.get();
+    hePost.value_.minimum(hePrev.value()*prevFraction);
+    hePost.value_.maximum(100*(1-prevFraction) + hePrev.value()*prevFraction);    
+  }
 
-  //void
-  //setPossibleO2Content {
-    //TODO    
-  //}
+  void
+  setPossibleO2Content() {
+    float prevFraction = pPrev.value_.get() / pPost.value_.get();
+    float remainingPercent = 1 - hePost.value_.get()/100.0;
+    o2Post.value_.minimum((21*(1-prevFraction)+o2Prev.value()*prevFraction)*remainingPercent);
+    o2Post.value_.maximum((40/remainingPercent*(1-prevFraction)+o2Prev.value()*prevFraction)*remainingPercent);
+  }
 
   MixMenu() {
     pPrev = SingleOption("P  0", 100);
@@ -125,10 +130,13 @@ struct MixMenu {
       case 2:
         return o2Prev;
       case 3:
+        pPost.value_.minimum(pPrev.value());
         return pPost;
       case 4:
+        setPossibleHeContent();
         return hePost;
       case 5:
+        setPossibleO2Content();
         return o2Post;
       default:
         return o2Post;
