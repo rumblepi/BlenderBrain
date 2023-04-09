@@ -48,6 +48,13 @@ struct SingleOption {
     dispName_(name),
     value_(val)
     {}
+  
+  SingleOption(char* name, int val, int min, int max):
+    dispName_(name),
+    value_(val)
+    {
+      value_.minimax(min, max);
+    }
 
   void show(EightDigitDisplay & display) {
     if(!displayDebounce.check()) return;
@@ -194,4 +201,67 @@ struct MainMenu {
   Debouncer displayDebouncer = Debouncer(100);
   int activeVal_ = 0;
   int numEntries = 2;
+};
+
+
+struct SetMenu {
+
+  int activeVal_ = 0;
+  const int nOptions_ = 6;
+
+  SingleOption hePWM;
+  SingleOption o2PWM;
+  SingleOption heKp;
+  SingleOption o2Kp;
+  SingleOption heKi;
+  SingleOption o2Ki;
+
+  SetMenu() {
+    hePWM = SingleOption("Hint", 2500, 1000, 9999);
+    o2PWM = SingleOption("Oint", 2500, 1000, 9999);
+    heKp = SingleOption("HE P", 100, 1,9999);
+    o2Kp = SingleOption("02 P", 100,1,9999); // divide by 10000, display with dot
+    heKi = SingleOption("HE i", 10,1,9999);
+    o2Ki = SingleOption("02 i", 10,1,9999);
+  }
+
+  void
+  reset() {
+    activeVal_ = 0;
+  }  
+
+  SingleOption & getActive() {
+    switch(activeVal_) {  
+      case 0:
+        return hePWM;
+      case 1:
+        return o2PWM;
+      case 2:
+        return heKp;
+      case 3:
+        return o2Kp;
+      case 4:
+        return heKi;
+      case 5:
+        return o2Ki;
+      default:
+        return o2Ki;
+    }
+  }
+
+  bool
+  next() {
+    activeVal_++;
+    if(activeVal_ < nOptions_) {
+      return false;
+    } else {
+      return true;
+    }
+  }  
+
+  void
+  display(EightDigitDisplay & disp) {
+    getActive().show(disp);
+  }
+  
 };

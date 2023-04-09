@@ -38,6 +38,12 @@ struct ClippedFloat {
     set(val_);
   }
 
+  void
+  minimax(float newMin, float newMax) {
+    minimum(newMin);
+    maximum(newMax);
+  }
+
   float get() const {
     return val_;
   }

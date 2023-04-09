@@ -100,6 +100,8 @@ Setpoint measuredMix;
 
 MainMenu mainMenu;
 MixMenu mixMenu;
+SetMenu setMenu;
+
 bool inMain = true;
 bool mixing = false;
 bool goodMix = false;
@@ -188,8 +190,21 @@ void loop() {
           heControl.targetValue_ = mixSetup.mixRequired.hePercent_.get();          
         }       
       break;
-      case 1://set
-        //TODO: make the PI controller parameters changeable
+      case 1:
+        setMenu.display(display);
+        setMenu.getActive().value(encoder.read(setMenu.getActive().value()));
+
+        if (encoder.button_.pressed()) {
+          inMain = setMenu.next();
+        }
+        if (inMain) {
+          oxyValve.set_pwm_ms(setMenu.o2PWM.value_.get());
+          heValve.set_pwm_ms(setMenu.hePWM.value_.get());
+          oxyControl.Ki_ = setMenu.o2Ki.value_.get()/10000.;
+          oxyControl.Kp_ = setMenu.o2Kp.value_.get()/10000.;
+          heControl.Ki_ = setMenu.heKi.value_.get()/10000.;
+          heControl.Kp_ = setMenu.heKp.value_.get()/10000.;
+        }  
         break;
     }
   }
