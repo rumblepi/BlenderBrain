@@ -53,7 +53,7 @@ struct ClippedFloat {
  *  delay() method)
  */
 struct Debouncer {
-  Debouncer(float delay):
+  Debouncer(float delay = 1.):
     delay_(delay),
     lastDebounce_(0){}
 

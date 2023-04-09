@@ -60,9 +60,10 @@ struct MagneticValve {
     pin_(pin),
     s_(1),
     on_(false),
-    pwm_period_ms_(2500),
-    pwmPeriod_(Debouncer(pwm_period_ms_)),
-    onPeriod_(Debouncer(s_*pwm_period_ms_)){}    
+    pwm_period_ms_(2500){      
+      pwmPeriod_ = Debouncer(pwm_period_ms_);
+      onPeriod_ = Debouncer(s_*pwm_period_ms_);
+    }
 
   void open() {
     digitalWrite(pin_, true);
