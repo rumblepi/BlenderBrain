@@ -129,10 +129,7 @@ void setup() {
 }
 
 void loop() {
-#ifdef DEBUGMODE
-  debugDisplay();
-  delay(1000);
-#else
+  
   if (reset.pressed()) {
     mixing = false;
     inMain = true;
@@ -150,7 +147,6 @@ void loop() {
     heSensor.recalibrate(20.95);
   }
   if(mixing) {
-    //TODO add display and PI control of valves
     if(!goodMix) {
       display.writeText("Set Err ", 8);
       mixing = false;
@@ -164,6 +160,12 @@ void loop() {
     heSensor.update();
     measuredMix.computeFromSensors(oxySensor, heSensor);
     measuredMix.display(display,1);
+
+    oxyValve.setS(oxyControl.compute(measuredMix.oxyPercent_.get()));    
+    heValve.setS(heControl.compute(measuredMix.hePercent_.get()));    
+
+    oxyValve.update();
+    heValve.update();
   }
   else if (inMain) {
     mainMenu.update(encoder);
@@ -182,6 +184,8 @@ void loop() {
         }
         if (mixing) {
           goodMix = mixSetup.updateFromMixMenu(mixMenu);
+          oxyControl.targetValue_ = mixSetup.mixRequired.oxyPercent_.get();
+          heControl.targetValue_ = mixSetup.mixRequired.hePercent_.get();          
         }       
       break;
       case 1://set
@@ -189,5 +193,4 @@ void loop() {
         break;
     }
   }
-#endif
 }

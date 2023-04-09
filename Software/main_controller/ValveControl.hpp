@@ -1,9 +1,6 @@
 #pragma once
 #include "BasicStructures.hpp"
 
-//* Other fixed numbers
-float VALVE_PWM_PERIOD_MS = 1000;
-
 //! Implements proportional-integral control to adjust a quantity to a certain target value
 //! This controller clips the outputs to the interval [0,1]
 struct PIControl {
@@ -55,13 +52,17 @@ struct MagneticValve {
   int pin_;
   float s_;//fraction of the pwm period to switch the valve on
   bool on_;
+  float pwm_period_ms_;
+  Debouncer pwmPeriod_;
+  Debouncer onPeriod_;
+
   MagneticValve(int pin):
     pin_(pin),
     s_(1),
-    on_(false){}    
-
-  Debouncer pwmPeriod_ = Debouncer(VALVE_PWM_PERIOD_MS);
-  Debouncer onPeriod_ = Debouncer(s_*VALVE_PWM_PERIOD_MS);
+    on_(false),
+    pwm_period_ms_(2500),
+    pwmPeriod_(Debouncer(pwm_period_ms_)),
+    onPeriod_(Debouncer(s_*pwm_period_ms_)){}    
 
   void open() {
     digitalWrite(pin_, true);
@@ -78,7 +79,16 @@ struct MagneticValve {
       return;
     } 
     s_ = newS;
-    onPeriod_.delay_=s_*VALVE_PWM_PERIOD_MS;  
+    onPeriod_.delay_=s_*pwm_period_ms_;  
+  }
+
+  void set_pwm_ms(float new_pwm_ms) {
+    if (new_pwm_ms < 1000 or new_pwm_ms > 10000) {
+      return;
+    }
+    pwm_period_ms_ = new_pwm_ms;
+    pwmPeriod_ = Debouncer(pwm_period_ms_);
+    onPeriod_ = Debouncer(s_*pwm_period_ms_);    
   }
   
   void update() {
