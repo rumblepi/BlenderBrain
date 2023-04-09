@@ -84,9 +84,6 @@ DebouncedButton reset = DebouncedButton(RESET_BUTTON_PIN);
 
 EightDigitDisplay display = EightDigitDisplay(LedControl(DISPLAY_DIN_PIN,DISPLAY_CLK_PIN,DISPLAY_CS_PIN,1));
 
-StatusLed redLed = StatusLed(RED_LIGHT_PIN);
-StatusLed greenLed = StatusLed(GREEN_LIGHT_PIN);
-
 Sensor oxySensor = Sensor(OXY_SENSOR_PIN, 20.95);
 Sensor heSensor = Sensor(HE_SENSOR_PIN, 20.95);
 

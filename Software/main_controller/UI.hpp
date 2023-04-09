@@ -4,40 +4,6 @@
 #include "Display.hpp"
 #include "Encoder.hpp"
 
-struct StatusLed {
-  enum LedState {
-    On,
-    Off,
-    Blinking
-  };
-  int pin_;
-  LedState status_;
-  Debouncer blinker_ = Debouncer(1000);
-  Debouncer secondBlink_ = Debouncer(500);
-
-  StatusLed(int pin):
-    pin_(pin),
-    status_(LedState::Off) {}
-  
-  void update(){
-    switch(status_) {
-      case LedState::On:
-        digitalWrite(pin_, true);
-        break;
-      case LedState::Off:
-        digitalWrite(pin_, false);
-        break;
-      case LedState::Blinking:
-        if (!blinker_.check() && !secondBlink_.check()){
-            digitalWrite(pin_,true);
-          } else {
-            digitalWrite(pin_,false);
-          }
-        break;
-    }
-  }
-};
-
 // Structure for the user interface
 struct SingleOption {
   SingleOption() {
