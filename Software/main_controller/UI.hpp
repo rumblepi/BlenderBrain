@@ -181,17 +181,17 @@ struct MainMenu {
         disp.clear();
         disp.writeText("StArt", 5);
         break;
-      case 1:
-        disp.clear();
-        disp.writeText("SEt", 3);
-        break;
+      // case 1:
+      //   disp.clear();
+      //   disp.writeText("SEt", 3);
+      //   break;
     }
   }
   int
   get() {
     return activeVal_;
   }  
-  Debouncer displayDebouncer = Debouncer(100);
+  Debouncer displayDebouncer = Debouncer(1000);
   int activeVal_ = 0;
-  int numEntries = 2;
+  int numEntries = 1;
 };
