@@ -9,7 +9,6 @@
 #include "UI.hpp"
 #include "Encoder.hpp"
 #include "Sensor.hpp"
-#include "ValveControl.hpp"
 #include "Display.hpp"
 #include "Setpoint.hpp"
 
@@ -84,23 +83,12 @@ DebouncedButton reset = DebouncedButton(RESET_BUTTON_PIN);
 
 EightDigitDisplay display = EightDigitDisplay(LedControl(DISPLAY_DIN_PIN,DISPLAY_CLK_PIN,DISPLAY_CS_PIN,1));
 
-StatusLed redLed = StatusLed(RED_LIGHT_PIN);
-StatusLed greenLed = StatusLed(GREEN_LIGHT_PIN);
-
 Sensor oxySensor = Sensor(OXY_SENSOR_PIN, 20.95);
 Sensor heSensor = Sensor(HE_SENSOR_PIN, 20.95);
 
-PIControl oxyControl = PIControl(20.95,0.01,0.001);
-PIControl heControl = PIControl(0.0,0.01,0.001);
-
-MagneticValve oxyValve = MagneticValve(OXY_VALVE_PIN);
-MagneticValve heValve = MagneticValve(HE_VALVE_PIN);
-
 Setpoint measuredMix;
 
-MainMenu mainMenu;
 MixMenu mixMenu;
-bool inMain = true;
 bool mixing = false;
 bool goodMix = false;
 
@@ -135,16 +123,13 @@ void loop() {
 #else
   if (reset.pressed()) {
     mixing = false;
-    inMain = true;
     mixMenu.reset();
-    oxyValve.close();
-    heValve.close();
     display.clear();
     for (int i = 0; i < 5; ++i) {
       display.writeText("SEnS0r  ", 8);
-      delay(1000);
-      display.writeText("CAL18   ", 8);
-      delay(1000);
+      delay(500);
+      display.writeText("CAL1b   ", 8);
+      delay(500);
     }
     oxySensor.recalibrate(20.95);
     heSensor.recalibrate(20.95);
@@ -154,40 +139,23 @@ void loop() {
     if(!goodMix) {
       display.writeText("Set Err ", 8);
       mixing = false;
-      inMain = true;
       mixMenu.reset();
-      oxyValve.close();
-      heValve.close();
     }
     mixSetup.mixRequired.display(display, 0);
     oxySensor.update();
     heSensor.update();
     measuredMix.computeFromSensors(oxySensor, heSensor);
     measuredMix.display(display,1);
-  }
-  else if (inMain) {
-    mainMenu.update(encoder);
-    mainMenu.display(display);
-    if(encoder.button_.pressed()) {
-      inMain = false;
-    }
   } else {
-    switch(mainMenu.activeVal_) {
-      case 0://start
-        mixMenu.display(display);
-        mixMenu.getActive().value(encoder.read(mixMenu.getActive().value()));
+    mixMenu.display(display);
+    mixMenu.getActive().value(encoder.read(mixMenu.getActive().value()));
 
-        if (encoder.button_.pressed()) {
-          mixing = mixMenu.next();
-        }
-        if (mixing) {
-          goodMix = mixSetup.updateFromMixMenu(mixMenu);
-        }       
-      break;
-      case 1://set
-        //TODO: make the PI controller parameters changeable
-        break;
+    if (encoder.button_.pressed()) {
+      mixing = mixMenu.next();
     }
+    if (mixing) {
+      goodMix = mixSetup.updateFromMixMenu(mixMenu);
+    }       
   }
 #endif
 }

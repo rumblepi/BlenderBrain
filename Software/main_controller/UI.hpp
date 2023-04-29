@@ -4,40 +4,6 @@
 #include "Display.hpp"
 #include "Encoder.hpp"
 
-struct StatusLed {
-  enum LedState {
-    On,
-    Off,
-    Blinking
-  };
-  int pin_;
-  LedState status_;
-  Debouncer blinker_ = Debouncer(1000);
-  Debouncer secondBlink_ = Debouncer(500);
-
-  StatusLed(int pin):
-    pin_(pin),
-    status_(LedState::Off) {}
-  
-  void update(){
-    switch(status_) {
-      case LedState::On:
-        digitalWrite(pin_, true);
-        break;
-      case LedState::Off:
-        digitalWrite(pin_, false);
-        break;
-      case LedState::Blinking:
-        if (!blinker_.check() && !secondBlink_.check()){
-            digitalWrite(pin_,true);
-          } else {
-            digitalWrite(pin_,false);
-          }
-        break;
-    }
-  }
-};
-
 // Structure for the user interface
 struct SingleOption {
   SingleOption() {
@@ -53,12 +19,16 @@ struct SingleOption {
     if(!displayDebounce.check()) return;
     display.clear();
     display.writeText(dispName_, 4);
-    display.writeTwoDigits(value()/100, 3);
-    display.writeTwoDigits(value(),4);
+    if(hasValue_) {
+      display.writeTwoDigits(value()/100, 3);
+      display.writeTwoDigits(value(),4);
+    }
   }
 
   void value(ClippedFloat newClippedVal) {
-    value_ = newClippedVal;
+    if (hasValue_) {
+      value_ = newClippedVal;
+    }
   }
 
   void value(int newVal) {
@@ -73,12 +43,13 @@ struct SingleOption {
   char* dispName_;
   ClippedFloat value_;  
   Debouncer displayDebounce = Debouncer(50);
+  bool hasValue_ = true;
 };
 
 struct MixMenu {
 
   int activeVal_ = 0;
-  const int nOptions_ = 6;
+  const int nOptions_ = 7;
 
   SingleOption pPrev;
   SingleOption pPost;
@@ -86,6 +57,7 @@ struct MixMenu {
   SingleOption o2Prev;
   SingleOption hePost;
   SingleOption o2Post;
+  SingleOption start;
 
   void
   setPossibleHeContent() {
@@ -114,6 +86,8 @@ struct MixMenu {
     pPost.value_.maximum(225);
     pPost.value_.set(220);
     o2Post.value_.maximum(40);
+    start = SingleOption("Go  ", 0);
+    start.hasValue_ = false;
   }
 
   void
@@ -138,8 +112,10 @@ struct MixMenu {
       case 5:
         setPossibleO2Content();
         return o2Post;
+      case 6:
+        return start;
       default:
-        return o2Post;
+        return start;
     }
   }
 
@@ -158,40 +134,4 @@ struct MixMenu {
     getActive().show(disp);
   }
   
-};
-
-
-struct MainMenu {
-  void
-  clip() {
-    activeVal_ %= numEntries;
-  }  
-
-  void
-  update(ButtonEncoder & enc) {
-    activeVal_ = enc.read(activeVal_);
-    clip();
-  }
-
-  void
-  display(EightDigitDisplay & disp) {
-    if(!displayDebouncer.check()) return;
-    switch(activeVal_) {
-      case 0:
-        disp.clear();
-        disp.writeText("StArt", 5);
-        break;
-      // case 1:
-      //   disp.clear();
-      //   disp.writeText("SEt", 3);
-      //   break;
-    }
-  }
-  int
-  get() {
-    return activeVal_;
-  }  
-  Debouncer displayDebouncer = Debouncer(1000);
-  int activeVal_ = 0;
-  int numEntries = 1;
 };
