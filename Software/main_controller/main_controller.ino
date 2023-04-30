@@ -53,6 +53,7 @@ struct MixSetup {
     pressureAfter = settings.pPost.value();
     mixBefore = Setpoint(settings.o2Prev.value(), settings.hePrev.value());
     mixAfter = Setpoint(settings.o2Post.value(), settings.hePost.value());
+    integralControlMix.oxyPercent_.maximum(40.0);
     return computeRequiredMix();
   }
 
@@ -65,6 +66,28 @@ struct MixSetup {
       return false;
     }
     mixRequired = Setpoint(requiredO2, requiredHe);
+    mixEstimated = Setpoint(20.95, 0);
+    updateIntegralControl();
+    prevTime_ = millis();
+    return true;
+  }
+
+  bool
+  updateEstimatedMix(Setpoint measuredMix) {
+    if(!integralDebouncer.check()) return false;
+    float now = millis();
+    float dt = now - prevTime_;
+    mixEstimated.setOxyPercent((mixEstimated.oxyPercent_.get()*elapsedTime_ + measuredMix.oxyPercent_.get()*dt)/(elapsedTime_ + dt));
+    mixEstimated.setHePercent((mixEstimated.hePercent_.get()*elapsedTime_ + measuredMix.hePercent_.get()*dt)/(elapsedTime_ + dt));
+    elapsedTime_ = elapsedTime_ + dt;
+    prevTime_ = now;
+    return true;
+  }
+
+  bool 
+  updateIntegralControl() {
+    integralControlMix.setOxyPercent(2*mixRequired.oxyPercent_.get() - mixEstimated.oxyPercent_.get());
+    integralControlMix.setHePercent(2*mixRequired.hePercent_.get() - mixEstimated.hePercent_.get());
     return true;
   }
 
@@ -72,8 +95,14 @@ struct MixSetup {
   int pressureAfter;
   Setpoint mixBefore;
   Setpoint mixAfter; 
-  Setpoint mixRequired;  
- 
+  Setpoint mixRequired;
+  Setpoint mixEstimated;
+  Debouncer integralDebouncer = Debouncer(500);
+  float prevTime_ = 0;
+  float elapsedTime_ = 0;
+
+  Setpoint integralControlMix;
+
 };
 
 ///////////////////////////////////////////////////////////////////
@@ -141,10 +170,12 @@ void loop() {
       mixing = false;
       mixMenu.reset();
     }
-    mixSetup.mixRequired.display(display, 0);
+    mixSetup.integralControlMix.display(display, 0);
     oxySensor.update();
     heSensor.update();
     measuredMix.computeFromSensors(oxySensor, heSensor);
+    mixSetup.updateEstimatedMix(measuredMix);
+    mixSetup.updateIntegralControl();
     measuredMix.display(display,1);
   } else {
     mixMenu.display(display);
