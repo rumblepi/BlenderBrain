@@ -84,6 +84,12 @@ struct MixSetup {
     return true;
   }
 
+  void
+  resetEstimatedMix() {
+    mixEstimated = Setpoint(20.95, 0);
+    elapsedTime_ = 0;
+  }
+
   bool 
   updateIntegralControl() {
     integralControlMix.setOxyPercent(2*mixRequired.oxyPercent_.get() - mixEstimated.oxyPercent_.get());
@@ -162,6 +168,7 @@ void loop() {
     }
     oxySensor.recalibrate(20.95);
     heSensor.recalibrate(20.95);
+    mixSetup.resetEstimatedMix();
   }
   if(mixing) {
     //TODO add display and PI control of valves

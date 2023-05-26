@@ -38,6 +38,12 @@ struct EightDigitDisplay {
       } else if(txt[i]=='r'){
         lc_.setLed(0,7-i,5,true);  
         lc_.setLed(0,7-i,7,true);  
+      } else if(txt[i]=='G'){
+        lc_.setLed(0,7-i,4,true);  
+        lc_.setLed(0,7-i,5,true);  
+        lc_.setLed(0,7-i,6,true);  
+        lc_.setLed(0,7-i,1,true); 
+        lc_.setLed(0,7-i,3,true);   
       } else {
         lc_.setChar(0,7-i,txt[i],false);
       }
